@@ -179,7 +179,7 @@ function doPick(){
   pick.none=false;pick.dish="";
   var final=list[Math.floor(Math.random()*list.length)];
   pick.spinning=true;render();
-  var names=state.restaurants, i=0, started=Date.now();
+  var names=list, i=0, started=Date.now();
   clearInterval(pick.timer);
   pick.timer=setInterval(function(){
     var el=document.getElementById("spinName"),pl=document.getElementById("spinPlate");
