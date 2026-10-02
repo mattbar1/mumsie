@@ -202,14 +202,24 @@ function goHere(){
   if(pick.dish)logDraft.items=[pick.dish];
   go("log");
 }
+function pickSettings(){
+  return '<div class="card" style="padding:14px 18px">'+
+    '<div style="font-weight:800;color:var(--muted);font-size:15px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Meal</div>'+
+    '<div class="seg">'+["Breakfast","Lunch","Dinner"].map(function(m){return '<button class="'+(pick.meal===m?"on":"")+'" onclick="setPickMeal(\''+m+'\')">'+m+'</button>';}).join("")+'</div>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-top:14px">'+
+      '<span class="muted" style="font-size:17px;white-space:nowrap">Skip recent:</span>'+
+      '<select onchange="setAvoid(this.value)" style="flex:1">'+
+        [[0,"Don't skip any"],[1,"1 day"],[3,"3 days"],[7,"7 days"]].map(function(o){return '<option value="'+o[0]+'"'+(pick.avoid===o[0]?" selected":"")+'>'+o[1]+'</option>';}).join("")+
+      '</select>'+
+    '</div></div>';
+}
 function viewPick(){
-  var h='<div class="card"><label style="margin-top:0">Which meal?</label><div class="seg">'+
-    ["Breakfast","Lunch","Dinner"].map(function(m){return '<button class="'+(pick.meal===m?"on":"")+'" onclick="setPickMeal(\''+m+'\')">'+m+'</button>';}).join("")+'</div>'+
-    '<label>Skip places she went to in the last…</label><select onchange="setAvoid(this.value)">'+
-    [[0,"Don't skip any"],[1,"1 day"],[3,"3 days"],[7,"7 days"]].map(function(o){return '<option value="'+o[0]+'"'+(pick.avoid===o[0]?" selected":"")+'>'+o[1]+'</option>';}).join("")+'</select></div>';
+  var h='';
   if(pick.spinning){
     h+='<div class="result spin" style="background:#fff3e3"><div class="plate" id="spinPlate">🍽️</div><h2 id="spinName">Picking…</h2></div>';
-  } else if(pick.current){
+    return h;
+  }
+  if(pick.current){
     var r=pick.current, last=lastVisitTo(r.id);
     h+='<div class="result" style="'+bg(r)+'"><div class="muted">How about…</div><div class="plate">'+esc(r.emoji)+'</div><h2>'+esc(r.name)+'</h2>'+
       '<div>'+esc(r.cuisine)+'</div><div class="muted" style="margin-top:6px">'+agoText(r.id)+(last&&last.ate?' · had '+esc(last.ate):'')+'</div></div>';
@@ -221,11 +231,16 @@ function viewPick(){
       (r.url?'<div style="margin-top:10px"><a href="'+esc(r.url)+'" target="_blank" rel="noopener">See full menu ↗</a></div>':'')+
       (r.phone?'<div style="margin-top:6px"><a href="tel:'+esc(r.phone.replace(/[^0-9+]/g,""))+'">📞 '+esc(r.phone)+'</a></div>':'')+
       (r.hours?'<div class="muted" style="margin-top:6px">🕒 '+esc(r.hours)+'</div>':'')+'</div>';
-  } else if(pick.none){
-    h+='<div class="card"><h2>Out of choices</h2><div class="muted">Everything was skipped or recently visited. Start over, or lower the "skip" setting.</div></div><button onclick="resetPick()">Start over</button>';
-  } else {
-    h+='<button onclick="doPick()" style="min-height:90px;font-size:26px">🎲 Pick a restaurant for me</button>';
+    h+=pickSettings();
+    return h;
   }
+  if(pick.none){
+    h+='<div class="card"><h2>Out of choices</h2><div class="muted">Everything was skipped or recently visited. Start over, or lower the "skip" setting.</div></div><button onclick="resetPick()">Start over</button>';
+    h+=pickSettings();
+    return h;
+  }
+  h+=pickSettings();
+  h+='<button onclick="doPick()" style="min-height:90px;font-size:26px">🎲 Pick a restaurant for Mumsie</button>';
   return h;
 }
 
