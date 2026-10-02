@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#b8431f">
+<title>Mumsie's Meals</title>
+<style>
+  :root{
+    --bg:#fdf6ec; --card:#fff; --ink:#2a2018; --muted:#7d6c5b; --line:#efdfca;
+    --accent:#c4452a; --accent2:#e8863a; --good:#2e7d4f; --warn:#fff2c9;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-size:22px;line-height:1.35;padding-bottom:120px}
+  .hero{background:linear-gradient(135deg,#b8431f 0%,#e8863a 100%);color:#fff;padding:calc(18px + env(safe-area-inset-top)) 20px 26px;
+    border-radius:0 0 32px 32px;box-shadow:0 8px 24px rgba(184,67,31,.25);position:relative;overflow:hidden}
+  .hero:after{content:"🍝 🍣 🍗 🍷";position:absolute;right:-6px;bottom:-14px;font-size:52px;opacity:.16;letter-spacing:8px;white-space:nowrap}
+  .hero h1{margin:0;font-size:34px;letter-spacing:-.5px}
+  .hero p{margin:4px 0 0;opacity:.92;font-size:20px}
+  .me{position:absolute;right:14px;top:calc(14px + env(safe-area-inset-top));background:rgba(255,255,255,.22);color:#fff;border:0;
+    border-radius:999px;padding:8px 14px;font:inherit;font-size:17px;font-weight:600;min-height:0;width:auto;margin:0}
+  main{padding:6px 16px}
+  .card{background:var(--card);border:2px solid var(--line);border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 2px 10px rgba(80,50,20,.05)}
+  .card h2{margin:0 0 6px;font-size:27px}
+  .muted{color:var(--muted)}
+  .sec{font-weight:800;margin:24px 4px 6px;color:var(--muted);font-size:18px;text-transform:uppercase;letter-spacing:.06em}
+  button{font:inherit;font-weight:700;border:0;border-radius:18px;padding:16px 20px;min-height:64px;background:var(--accent);color:#fff;
+    width:100%;margin-top:12px;cursor:pointer;transition:transform .08s}
+  button:active{transform:scale(.97)}
+  button.secondary{background:#fff;color:var(--ink);border:2px solid var(--line)}
+  button.good{background:var(--good)}
+  button.small{width:auto;min-height:46px;padding:8px 16px;font-size:18px;margin:8px 8px 0 0}
+  button.danger{background:#fff;color:#a02020;border:2px solid #efc3c3}
+  button:disabled{opacity:.5}
+  label{display:block;font-weight:700;margin:18px 0 8px}
+  input,select,textarea{font:inherit;width:100%;padding:14px;border:2px solid var(--line);border-radius:14px;background:#fff;color:var(--ink)}
+  textarea{min-height:90px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px}
+  .chip{width:auto;margin:0;min-height:52px;padding:10px 18px;border-radius:999px;background:#fff;color:var(--ink);border:2px solid var(--line);font-size:20px}
+  .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .chip.item{font-weight:500;font-size:18px;min-height:46px;padding:8px 14px}
+  .chip.item.on{background:var(--good);border-color:var(--good)}
+  .seg{display:flex;gap:10px}
+  .seg button{margin:0;background:#fff;color:var(--ink);border:2px solid var(--line);padding:14px 8px}
+  .seg button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .tile{margin:0;border:3px solid transparent;border-radius:22px;padding:14px 8px;min-height:130px;color:var(--ink);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:6px;text-align:center;font-size:19px;line-height:1.15;box-shadow:0 2px 8px rgba(80,50,20,.08)}
+  .tile .e{font-size:44px;line-height:1}
+  .tile.on{border-color:var(--ink);transform:scale(1.02)}
+  .tile small{font-weight:500;color:#5b4a3a;font-size:15px}
+  nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border-top:2px solid var(--line);
+    display:flex;padding:8px 8px calc(8px + env(safe-area-inset-bottom));gap:4px;z-index:5}
+  nav button{margin:0;min-height:60px;padding:4px;font-size:15px;background:transparent;color:var(--muted);border-radius:14px;flex:1}
+  nav button span{display:block;font-size:26px;line-height:1.1}
+  nav button.on{background:#fbe6d4;color:var(--accent)}
+  .plate{width:150px;height:150px;border-radius:50%;margin:6px auto 10px;display:flex;align-items:center;justify-content:center;font-size:84px;
+    background:radial-gradient(circle at 35% 30%,#fff 0%,#fff 55%,#f1e6d6 100%);box-shadow:0 8px 20px rgba(0,0,0,.18), inset 0 0 0 8px rgba(255,255,255,.7)}
+  .result{border-radius:28px;padding:22px 16px 24px;text-align:center;color:var(--ink);border:3px solid rgba(0,0,0,.08)}
+  .result h2{font-size:34px;margin:4px 0}
+  .result.spin .plate{animation:wob .35s infinite alternate}
+  @keyframes wob{from{transform:rotate(-8deg) scale(1)}to{transform:rotate(8deg) scale(1.06)}}
+  .dish{background:var(--warn);border:2px solid #f0d98a;border-radius:16px;padding:12px 14px;margin-top:12px;font-weight:700}
+  .banner{background:var(--warn);border:2px solid #f0d98a;border-radius:14px;padding:10px 14px;font-size:18px;margin:12px 0}
+  .status{display:flex;gap:10px}
+  .status .s{flex:1;border-radius:18px;padding:12px;border:2px solid var(--line);background:#fff;text-align:left;font-size:18px;margin:0;color:var(--ink);min-height:0}
+  .status .s.done{background:#e6f4ea;border-color:#b5dbc2}
+  .tag{display:inline-block;background:#f8e7d2;border-radius:999px;padding:3px 13px;font-size:17px;margin:6px 6px 0 0}
+  ul.menu{margin:8px 0 0;padding-left:24px}
+  ul.menu li{margin:3px 0}
+  #toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#2a2018;color:#fff;padding:14px 22px;border-radius:999px;
+    font-weight:700;z-index:10;opacity:0;pointer-events:none;transition:opacity .25s;white-space:nowrap}
+  #toast.show{opacity:1}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="hero">
+  <button class="me" id="meBtn" onclick="meBtnTap()"></button>
+  <h1>Mumsie's Meals</h1>
+  <p>Where she's been · where to go next</p>
+</div>
+<main id="view"></main>
+<nav id="nav"></nav>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
