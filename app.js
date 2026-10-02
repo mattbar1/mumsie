@@ -38,6 +38,7 @@ function clone(o){return JSON.parse(JSON.stringify(o));}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
 function rest(id){return state.restaurants.find(function(r){return r.id===id;});}
 function rname(id){var r=rest(id);return r?r.name:"(removed place)";}
+function servesMeal(r,meal){return !r.meals || r.meals.indexOf(meal)>-1;}
 function remoji(id){var r=rest(id);return r?r.emoji:"🍽️";}
 function fmtTime(ts){return new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});}
 function startOfDay(ts){var d=new Date(ts);return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();}
@@ -170,7 +171,7 @@ function quickLog(meal){logDraft=newDraft();logDraft.meal=meal;go("log");}
 /* ================= picker ================= */
 var pick={meal:defaultMeal(),avoid:3,rejected:[],current:null,dish:"",spinning:false,none:false,timer:null};
 function candidates(){
-  return state.restaurants.filter(function(r){return daysSince(r.id)>=pick.avoid&&pick.rejected.indexOf(r.id)===-1;});
+  return state.restaurants.filter(function(r){return servesMeal(r,pick.meal)&&daysSince(r.id)>=pick.avoid&&pick.rejected.indexOf(r.id)===-1;});
 }
 function doPick(){
   var list=candidates();
@@ -189,7 +190,7 @@ function doPick(){
 }
 function pickAnother(){if(pick.current)pick.rejected.push(pick.current.id);doPick();}
 function resetPick(){pick.rejected=[];pick.current=null;pick.none=false;render();}
-function setPickMeal(m){pick.meal=m;render();}
+function setPickMeal(m){pick.meal=m;pick.rejected=[];pick.current=null;pick.dish="";pick.none=false;render();}
 function setAvoid(n){pick.avoid=parseInt(n,10);pick.rejected=[];pick.current=null;pick.none=false;render();}
 function suggestDish(){
   var r=pick.current; if(!r||!r.menu.length)return;
@@ -250,7 +251,8 @@ function viewLog(){
   var dup=sortedVisits().find(function(v){return v.id!==editingVisitId&&v.meal===d.meal&&startOfDay(v.ts)===startOfDay(draftTs(d));});
   if(dup)h+='<div class="banner">⚠️ '+esc(d.meal)+' was already logged: '+esc(rname(dup.restId))+' by '+esc(dup.who.join(", "))+' at '+fmtTime(dup.ts)+'.</div>';
   h+='<div class="sec" style="margin-top:12px">1 · Where did she eat?</div><div class="grid">'+state.restaurants.map(function(x){
-    return '<button class="tile'+(d.restId===x.id?" on":"")+'" style="'+bg(x)+'" onclick="setRest(\''+x.id+'\')"><span class="e">'+esc(x.emoji)+'</span>'+esc(x.name)+'<small>'+agoText(x.id)+'</small></button>';
+    var open=servesMeal(x,d.meal);
+    return '<button class="tile'+(d.restId===x.id?" on":"")+(open?"":" off")+'" style="'+bg(x)+'" onclick="setRest(\''+x.id+'\')"><span class="e">'+esc(x.emoji)+'</span>'+esc(x.name)+'<small>'+(open?agoText(x.id):"Doesn't serve "+d.meal)+'</small></button>';
   }).join("")+'</div>';
   h+='<div class="sec">2 · Which meal?</div><div class="seg">'+["Breakfast","Lunch","Dinner"].map(function(m){return '<button class="'+(d.meal===m?"on":"")+'" onclick="logSet(\'meal\',\''+m+'\')">'+m+'</button>';}).join("")+'</div>';
   h+='<div class="sec">3 · Dine-in or takeout?</div><div class="seg">'+[["Ate there","🪑 Ate there"],["Takeout","🥡 Takeout"]].map(function(m){return '<button class="'+(d.type===m[0]?"on":"")+'" onclick="logSet(\'type\',\''+m[0]+'\')">'+m[1]+'</button>';}).join("")+'</div>';
@@ -267,8 +269,22 @@ function viewLog(){
   h+='<button class="good" style="min-height:76px;font-size:26px;margin-top:20px" onclick="saveVisit()"'+(savingVisit?' disabled':'')+'>'+(savingVisit?'Saving…':(editingVisitId?'✅ Update meal':'✅ Save meal'))+'</button>';
   return h;
 }
-function setRest(id){logDraft.restId=id;logDraft.items=[];render();}
-function logSet(k,v){logDraft[k]=v;render();}
+function setRest(id){
+  var r=rest(id);
+  if(!servesMeal(r,logDraft.meal)){toast(r.name+" doesn't serve "+logDraft.meal);return;}
+  logDraft.restId=id;logDraft.items=[];render();
+}
+function logSet(k,v){
+  logDraft[k]=v;
+  if(k==="meal"){
+    var r=rest(logDraft.restId);
+    if(r&&!servesMeal(r,v)){
+      toast(r.name+" doesn't serve "+v+" — pick another place");
+      logDraft.restId="";logDraft.items=[];
+    }
+  }
+  render();
+}
 function toggleWho(i){
   var p=state.people[i], at=logDraft.who.indexOf(p);
   if(at>-1)logDraft.who.splice(at,1); else logDraft.who.push(p);
@@ -337,15 +353,28 @@ function delVisit(id){
 /* ================= places ================= */
 var editing=null; // null | "new" | id
 var savingPlace=false;
+var editMeals=[];
+function startEditPlace(id){
+  editing=id;
+  var r=id==="new"?null:rest(id);
+  editMeals=r?r.meals.slice():["Breakfast","Lunch","Dinner"];
+  render();
+}
+function toggleEditMeal(m){
+  var at=editMeals.indexOf(m);
+  if(at>-1)editMeals.splice(at,1); else editMeals.push(m);
+  render();
+}
 function viewPlaces(){
   var h="";
   if(editing)return viewEditPlace();
-  if(isAdmin())h+='<button onclick="editing=\'new\';render()">➕ Add a restaurant</button>';
+  if(isAdmin())h+='<button onclick="startEditPlace(\'new\')">➕ Add a restaurant</button>';
   else h+='<div class="banner">Only Lisa can add or change restaurants.</div>';
   h+='<div class="sec">'+state.restaurants.length+' restaurants</div>';
   state.restaurants.forEach(function(r){
     h+='<div class="card" style="'+bg(r)+'"><div style="display:flex;gap:14px;align-items:center"><div style="font-size:50px">'+esc(r.emoji)+'</div>'+
       '<div><h2 style="margin:0">'+esc(r.name)+'</h2><div class="muted">'+esc(r.cuisine)+'</div></div></div>'+
+      '<div>'+(r.meals||["Breakfast","Lunch","Dinner"]).map(function(m){return '<span class="tag">'+m+'</span>';}).join("")+'</div>'+
       '<div class="muted" style="margin-top:8px">'+agoText(r.id)+'</div>'+
       (r.address?'<div style="margin-top:6px">📍 '+esc(r.address)+'</div>':'')+
       (r.phone?'<div><a href="tel:'+esc(r.phone.replace(/[^0-9+]/g,""))+'">📞 '+esc(r.phone)+'</a></div>':'')+
@@ -353,7 +382,7 @@ function viewPlaces(){
       (r.menu.length?'<ul class="menu">'+r.menu.map(function(m){return '<li>'+esc(m)+'</li>';}).join("")+'</ul>':'')+
       (r.note?'<div class="muted" style="margin-top:8px"><i>'+esc(r.note)+'</i></div>':'')+
       (r.url?'<div style="margin-top:8px"><a href="'+esc(r.url)+'" target="_blank" rel="noopener">Full menu ↗</a></div>':'')+
-      (isAdmin()?'<button class="small secondary" onclick="editing=\''+r.id+'\';render()">✏️ Edit</button><button class="small danger" onclick="delPlace(\''+r.id+'\')">Remove</button>':'')+
+      (isAdmin()?'<button class="small secondary" onclick="startEditPlace(\''+r.id+'\')">✏️ Edit</button><button class="small danger" onclick="delPlace(\''+r.id+'\')">Remove</button>':'')+
       '</div>';
   });
   if(isAdmin()){
@@ -446,6 +475,9 @@ function viewEditPlace(){
     '<label>Phone</label><input id="e_phone" value="'+esc(r.phone||"")+'">'+
     '<label>Hours</label><input id="e_hours" value="'+esc(r.hours||"")+'">'+
     '<label>Website / menu link</label><input id="e_url" value="'+esc(r.url||"")+'">'+
+    '<label>Which meals does it serve?</label><div class="chips">'+["Breakfast","Lunch","Dinner"].map(function(m){
+      return '<button class="chip'+(editMeals.indexOf(m)>-1?" on":"")+'" onclick="toggleEditMeal(\''+m+'\')">'+m+'</button>';
+    }).join("")+'</div>'+
     '<label>Her favorite dishes (one per line)</label><textarea id="e_menu" style="min-height:160px">'+esc(r.menu.join("\n"))+'</textarea>'+
     '<button class="good" onclick="savePlace()"'+(savingPlace?' disabled':'')+'>'+(savingPlace?'Saving…':'Save')+'</button>'+
     '<button class="secondary" onclick="editing=null;render()">Cancel</button></div>';
@@ -453,10 +485,11 @@ function viewEditPlace(){
 function savePlace(){
   function g(i){return document.getElementById(i).value.trim();}
   if(!g("e_name")){toast("Please enter a name");return;}
+  if(!editMeals.length){toast("Pick at least one meal it serves");return;}
   if(savingPlace)return;
   var menu=document.getElementById("e_menu").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
   var fields={p_name:g("e_name"),p_emoji:g("e_emoji")||"🍽️",p_cuisine:g("e_cuisine"),p_address:g("e_address"),
-              p_phone:g("e_phone"),p_hours:g("e_hours"),p_url:g("e_url"),p_menu:menu};
+              p_phone:g("e_phone"),p_hours:g("e_hours"),p_url:g("e_url"),p_menu:menu,p_meals:editMeals};
   savingPlace=true;render();
   var call = editing==="new"
     ? sb.rpc("add_restaurant", Object.assign({p_token:token}, fields))

@@ -38,6 +38,7 @@ create table restaurants (
   url text not null default '',
   menu jsonb not null default '[]'::jsonb,
   note text not null default '',
+  meals jsonb not null default '["Breakfast","Lunch","Dinner"]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -93,7 +94,7 @@ begin
       select coalesce(jsonb_agg(jsonb_build_object(
         'id', id, 'name', name, 'emoji', emoji, 'hue', hue, 'cuisine', cuisine,
         'address', address, 'phone', phone, 'hours', hours, 'url', url,
-        'menu', menu, 'note', note
+        'menu', menu, 'note', note, 'meals', meals
       ) order by name), '[]'::jsonb)
       from restaurants
     ),
@@ -214,7 +215,7 @@ $$;
 
 create or replace function add_restaurant(
   p_token text, p_name text, p_emoji text, p_cuisine text, p_address text,
-  p_phone text, p_hours text, p_url text, p_menu jsonb
+  p_phone text, p_hours text, p_url text, p_menu jsonb, p_meals jsonb
 )
 returns jsonb
 language plpgsql
@@ -229,13 +230,16 @@ begin
   if me.id is null then return jsonb_build_object('ok', false, 'error', 'invalid_token'); end if;
   if me.role <> 'admin' then return jsonb_build_object('ok', false, 'error', 'forbidden'); end if;
   if coalesce(trim(p_name), '') = '' then return jsonb_build_object('ok', false, 'error', 'bad_name'); end if;
+  if p_meals is null or jsonb_typeof(p_meals) <> 'array' or jsonb_array_length(p_meals) = 0
+     or exists (select 1 from jsonb_array_elements_text(p_meals) e where e.value not in ('Breakfast','Lunch','Dinner'))
+  then return jsonb_build_object('ok', false, 'error', 'bad_meals'); end if;
 
   new_id := 'r_' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
 
-  insert into restaurants (id, name, emoji, hue, cuisine, address, phone, hours, url, menu)
+  insert into restaurants (id, name, emoji, hue, cuisine, address, phone, hours, url, menu, meals)
   values (new_id, p_name, coalesce(nullif(p_emoji,''),'🍽️'), (random()*360)::int,
           coalesce(p_cuisine,''), coalesce(p_address,''), coalesce(p_phone,''),
-          coalesce(p_hours,''), coalesce(p_url,''), coalesce(p_menu, '[]'::jsonb));
+          coalesce(p_hours,''), coalesce(p_url,''), coalesce(p_menu, '[]'::jsonb), p_meals);
 
   return jsonb_build_object('ok', true, 'id', new_id);
 end;
@@ -243,7 +247,7 @@ $$;
 
 create or replace function update_restaurant(
   p_token text, p_id text, p_name text, p_emoji text, p_cuisine text, p_address text,
-  p_phone text, p_hours text, p_url text, p_menu jsonb
+  p_phone text, p_hours text, p_url text, p_menu jsonb, p_meals jsonb
 )
 returns jsonb
 language plpgsql
@@ -260,6 +264,9 @@ begin
     return jsonb_build_object('ok', false, 'error', 'not_found');
   end if;
   if coalesce(trim(p_name), '') = '' then return jsonb_build_object('ok', false, 'error', 'bad_name'); end if;
+  if p_meals is null or jsonb_typeof(p_meals) <> 'array' or jsonb_array_length(p_meals) = 0
+     or exists (select 1 from jsonb_array_elements_text(p_meals) e where e.value not in ('Breakfast','Lunch','Dinner'))
+  then return jsonb_build_object('ok', false, 'error', 'bad_meals'); end if;
 
   update restaurants set
     name = p_name,
@@ -270,6 +277,7 @@ begin
     hours = coalesce(p_hours,''),
     url = coalesce(p_url,''),
     menu = coalesce(p_menu, '[]'::jsonb),
+    meals = p_meals,
     note = ''
   where id = p_id;
 
@@ -380,8 +388,8 @@ grant execute on function app_sync(text) to anon;
 grant execute on function log_visit(text, text, text, text, jsonb, text, bigint) to anon;
 grant execute on function delete_visit(text, uuid) to anon;
 grant execute on function update_visit(text, uuid, text, text, text, jsonb, text, bigint) to anon;
-grant execute on function add_restaurant(text, text, text, text, text, text, text, text, jsonb) to anon;
-grant execute on function update_restaurant(text, text, text, text, text, text, text, text, text, jsonb) to anon;
+grant execute on function add_restaurant(text, text, text, text, text, text, text, text, jsonb, jsonb) to anon;
+grant execute on function update_restaurant(text, text, text, text, text, text, text, text, text, jsonb, jsonb) to anon;
 grant execute on function delete_restaurant(text, text) to anon;
 grant execute on function admin_list_people(text) to anon;
 grant execute on function admin_add_person(text, text, text) to anon;
@@ -391,27 +399,27 @@ grant execute on function admin_remove_person(text, uuid) to anon;
 -- Seed data: the 4 restaurants already in the app
 -- ---------------------------------------------------------------------
 
-insert into restaurants (id, name, emoji, hue, cuisine, address, phone, hours, url, menu, note) values
+insert into restaurants (id, name, emoji, hue, cuisine, address, phone, hours, url, menu, note, meals) values
 ('r_vincents', 'Vincent''s Italian Cuisine', '🍝', 8, 'Italian · Metairie',
  '4411 Chastant St, Metairie', '504-885-2984', 'Lunch Wed–Fri · Dinner Mon–Sat',
  'https://vincentsitaliancuisine.com/',
  '["Chicken Parmagiana","Spaghetti and Meatballs","Homemade Lasagna","Fettucine Alfredo","Chicken Marsala","Veal Parmagiana","Canneloni","Eggplant Parmagiana","Corn & Crabmeat Bisque","Fried Calamari","Caesar Salad","White Chocolate Bread Pudding"]'::jsonb,
- ''),
+ '', '["Lunch","Dinner"]'::jsonb),
 ('r_faustos', 'Fausto''s Bistro', '🍷', 345, 'Italian & Sicilian · Metairie',
  '530 Veterans Memorial Blvd, Metairie', '504-833-7121', 'Mon–Thu 11–9 · Fri 11–10 · Sat 5–10',
  'https://www.faustosbistro.com/lunch-menu/',
  '[]'::jsonb,
- 'Their menu is a picture on their website. Lisa can type favorites in.'),
+ 'Their menu is a picture on their website. Lisa can type favorites in.', '["Lunch","Dinner"]'::jsonb),
 ('r_nami', 'Sushi Nami', '🍣', 200, 'Japanese · Metairie',
  'Veterans Memorial Blvd, Metairie', '', 'Open 7 days',
  'https://www.sushi-nami.com/',
  '["Sushi rolls","Sashimi","Shrimp tempura","Chicken teriyaki","Hibachi","Fried rice","Chicken wings"]'::jsonb,
- 'General items only. Lisa can update from their site.'),
+ 'General items only. Lisa can update from their site.', '["Lunch","Dinner"]'::jsonb),
 ('r_zea', 'Zea Rotisserie & Bar', '🍗', 28, 'Rotisserie & Louisiana · Metairie',
  '4416 Veterans Memorial Blvd, Metairie', '504-780-9090', 'Mon 4–9:30 · Tue–Sun 11–9:30',
  'https://zearestaurants.com/location/metairie/menu',
  '["Rotisserie Chicken","Rotisserie Chicken Marsala","Thai Ribs","Pepper Jelly Chicken Salad","Catfish Amandine","Shrimp Breaux Bridge","Crispy Shrimp & Grits","Red Beans & Rice","Honey Island Chicken","Bacon Cheeseburger","Sedona Chicken Panini","Balsamic Salmon","Spinach Dip","Key Lime Pie","Sweet Potato Pecan Bread Pudding"]'::jsonb,
- '');
+ '', '["Lunch","Dinner"]'::jsonb);
 
 -- ---------------------------------------------------------------------
 -- Seed data: people. Tokens are generated automatically (random,
