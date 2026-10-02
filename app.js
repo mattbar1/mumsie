@@ -59,7 +59,8 @@ function toLocalInput(d){
 }
 function toast(msg){var t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(function(){t.classList.remove("show");},2200);}
 function visitTags(v){
-  return '<span class="tag">'+esc(v.meal)+'</span><span class="tag">'+(v.type==="Takeout"?"🥡 Takeout":"🪑 Ate there")+'</span><span class="tag">👤 '+esc(v.who)+'</span>';
+  return '<span class="tag">'+esc(v.meal)+'</span><span class="tag">'+(v.type==="Takeout"?"🥡 Takeout":"🪑 Ate there")+'</span>'+
+    v.who.map(function(w){return '<span class="tag">👤 '+esc(w)+'</span>';}).join("");
 }
 function isAdmin(){return me.role==="admin";}
 
@@ -140,7 +141,7 @@ function viewHome(){
   var meals=["Lunch","Dinner"]; if(todayVisit("Breakfast"))meals.unshift("Breakfast");
   h+='<div class="sec">Today</div><div class="status">'+meals.map(function(m){
     var v=todayVisit(m);
-    return v?'<button class="s done" onclick="go(\'history\')"><b>✅ '+m+'</b><br>'+esc(rname(v.restId))+'<br><span class="muted">'+esc(v.who)+' · '+fmtTime(v.ts)+'</span></button>'
+    return v?'<button class="s done" onclick="go(\'history\')"><b>✅ '+m+'</b><br>'+esc(rname(v.restId))+'<br><span class="muted">'+esc(v.who.join(", "))+' · '+fmtTime(v.ts)+'</span></button>'
             :'<button class="s" onclick="quickLog(\''+m+'\')"><b>⬜ '+m+'</b><br><span class="muted">Not logged yet.<br>Tap to log</span></button>';
   }).join("")+'</div>';
   if(vs.length){
@@ -227,20 +228,20 @@ function viewPick(){
 /* ================= log ================= */
 var logDraft=null;
 var savingVisit=false;
-function newDraft(){return {restId:"",meal:defaultMeal(),type:"Ate there",who:me.name,items:[],text:"",custom:"",showTime:false};}
+function newDraft(){return {restId:"",meal:defaultMeal(),type:"Ate there",who:[me.name],items:[],text:"",custom:"",showTime:false};}
 function draftTs(d){return d.custom?new Date(d.custom).getTime():Date.now();}
 function viewLog(){
   if(!logDraft)logDraft=newDraft();
   var d=logDraft, r=rest(d.restId), h="";
   // duplicate warning
   var dup=sortedVisits().find(function(v){return v.meal===d.meal&&startOfDay(v.ts)===startOfDay(draftTs(d));});
-  if(dup)h+='<div class="banner">⚠️ '+esc(d.meal)+' was already logged: '+esc(rname(dup.restId))+' by '+esc(dup.who)+' at '+fmtTime(dup.ts)+'.</div>';
+  if(dup)h+='<div class="banner">⚠️ '+esc(d.meal)+' was already logged: '+esc(rname(dup.restId))+' by '+esc(dup.who.join(", "))+' at '+fmtTime(dup.ts)+'.</div>';
   h+='<div class="sec" style="margin-top:12px">1 · Where did she eat?</div><div class="grid">'+state.restaurants.map(function(x){
     return '<button class="tile'+(d.restId===x.id?" on":"")+'" style="'+bg(x)+'" onclick="setRest(\''+x.id+'\')"><span class="e">'+esc(x.emoji)+'</span>'+esc(x.name)+'<small>'+agoText(x.id)+'</small></button>';
   }).join("")+'</div>';
   h+='<div class="sec">2 · Which meal?</div><div class="seg">'+["Breakfast","Lunch","Dinner"].map(function(m){return '<button class="'+(d.meal===m?"on":"")+'" onclick="logSet(\'meal\',\''+m+'\')">'+m+'</button>';}).join("")+'</div>';
   h+='<div class="sec">3 · Dine-in or takeout?</div><div class="seg">'+[["Ate there","🪑 Ate there"],["Takeout","🥡 Takeout"]].map(function(m){return '<button class="'+(d.type===m[0]?"on":"")+'" onclick="logSet(\'type\',\''+m[0]+'\')">'+m[1]+'</button>';}).join("")+'</div>';
-  h+='<div class="sec">4 · Who took her?</div><div class="chips">'+state.people.map(function(p,i){return '<button class="chip'+(d.who===p?" on":"")+'" onclick="setWho('+i+')">'+esc(p)+'</button>';}).join("")+'</div>';
+  h+='<div class="sec">4 · Who took her? (pick one or more)</div><div class="chips">'+state.people.map(function(p,i){return '<button class="chip'+(d.who.indexOf(p)>-1?" on":"")+'" onclick="toggleWho('+i+')">'+esc(p)+'</button>';}).join("")+'</div>';
   if(r&&r.menu.length){
     h+='<div class="sec">What did she have? (optional)</div><div class="chips">'+r.menu.map(function(m,i){return '<button class="chip item'+(d.items.indexOf(m)>-1?" on":"")+'" onclick="toggleItem('+i+')">'+esc(m)+'</button>';}).join("")+'</div>';
   } else if(r){
@@ -255,7 +256,11 @@ function viewLog(){
 }
 function setRest(id){logDraft.restId=id;logDraft.items=[];render();}
 function logSet(k,v){logDraft[k]=v;render();}
-function setWho(i){logDraft.who=state.people[i];render();}
+function toggleWho(i){
+  var p=state.people[i], at=logDraft.who.indexOf(p);
+  if(at>-1)logDraft.who.splice(at,1); else logDraft.who.push(p);
+  render();
+}
 function toggleItem(i){
   var m=rest(logDraft.restId).menu[i], at=logDraft.items.indexOf(m);
   if(at>-1)logDraft.items.splice(at,1); else logDraft.items.push(m);
@@ -264,7 +269,7 @@ function toggleItem(i){
 function saveVisit(){
   var d=logDraft;
   if(!d.restId){toast("Tap a restaurant first");return;}
-  if(!d.who){toast("Choose who took her");return;}
+  if(!d.who.length){toast("Choose who took her");return;}
   if(savingVisit)return;
   var parts=d.items.slice(); if(d.text.trim())parts.push(d.text.trim());
   savingVisit=true;render();

@@ -46,7 +46,7 @@ create table visits (
   rest_id text references restaurants(id) on delete set null,
   meal text not null check (meal in ('Breakfast','Lunch','Dinner')),
   type text not null check (type in ('Ate there','Takeout')),
-  who text not null,
+  who jsonb not null default '[]'::jsonb,
   ate text not null default '',
   ts timestamptz not null default now(),
   created_by uuid references people(id) on delete set null,
@@ -110,7 +110,7 @@ $$;
 
 create or replace function log_visit(
   p_token text, p_rest_id text, p_meal text, p_type text,
-  p_who text, p_ate text, p_ts bigint default null
+  p_who jsonb, p_ate text, p_ts bigint default null
 )
 returns jsonb
 language plpgsql
@@ -126,7 +126,9 @@ begin
   if me.id is null then return jsonb_build_object('ok', false, 'error', 'invalid_token'); end if;
   if p_meal not in ('Breakfast','Lunch','Dinner') then return jsonb_build_object('ok', false, 'error', 'bad_meal'); end if;
   if p_type not in ('Ate there','Takeout') then return jsonb_build_object('ok', false, 'error', 'bad_type'); end if;
-  if coalesce(trim(p_who), '') = '' then return jsonb_build_object('ok', false, 'error', 'bad_who'); end if;
+  if p_who is null or jsonb_typeof(p_who) <> 'array' or jsonb_array_length(p_who) = 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad_who');
+  end if;
   if not exists (select 1 from restaurants where id = p_rest_id) then
     return jsonb_build_object('ok', false, 'error', 'bad_restaurant');
   end if;
@@ -251,7 +253,7 @@ $$;
 
 -- Only the functions above are reachable by the app's anon key.
 grant execute on function app_sync(text) to anon;
-grant execute on function log_visit(text, text, text, text, text, text, bigint) to anon;
+grant execute on function log_visit(text, text, text, text, jsonb, text, bigint) to anon;
 grant execute on function delete_visit(text, uuid) to anon;
 grant execute on function add_restaurant(text, text, text, text, text, text, text, text, jsonb) to anon;
 grant execute on function update_restaurant(text, text, text, text, text, text, text, text, text, jsonb) to anon;
