@@ -168,6 +168,50 @@ begin
 end;
 $$;
 
+create or replace function update_visit(
+  p_token text, p_visit_id uuid, p_rest_id text, p_meal text, p_type text,
+  p_who jsonb, p_ate text, p_ts bigint default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me people;
+  v visits;
+  use_ts timestamptz;
+begin
+  select * into me from people where token = p_token;
+  if me.id is null then return jsonb_build_object('ok', false, 'error', 'invalid_token'); end if;
+
+  select * into v from visits where id = p_visit_id;
+  if v.id is null then return jsonb_build_object('ok', false, 'error', 'not_found'); end if;
+
+  if me.role <> 'admin' and v.created_by is distinct from me.id then
+    return jsonb_build_object('ok', false, 'error', 'forbidden');
+  end if;
+
+  if p_meal not in ('Breakfast','Lunch','Dinner') then return jsonb_build_object('ok', false, 'error', 'bad_meal'); end if;
+  if p_type not in ('Ate there','Takeout') then return jsonb_build_object('ok', false, 'error', 'bad_type'); end if;
+  if p_who is null or jsonb_typeof(p_who) <> 'array' or jsonb_array_length(p_who) = 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad_who');
+  end if;
+  if not exists (select 1 from restaurants where id = p_rest_id) then
+    return jsonb_build_object('ok', false, 'error', 'bad_restaurant');
+  end if;
+
+  use_ts := case when p_ts is null then v.ts else to_timestamp(p_ts / 1000.0) end;
+
+  update visits set
+    rest_id = p_rest_id, meal = p_meal, type = p_type,
+    who = p_who, ate = coalesce(p_ate, ''), ts = use_ts
+  where id = p_visit_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
 create or replace function add_restaurant(
   p_token text, p_name text, p_emoji text, p_cuisine text, p_address text,
   p_phone text, p_hours text, p_url text, p_menu jsonb
@@ -251,13 +295,97 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------
+-- Admin-only: managing who has access (Lisa uses these from the app's
+-- Places tab instead of the SQL editor).
+-- ---------------------------------------------------------------------
+
+create or replace function admin_list_people(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me people;
+begin
+  select * into me from people where token = p_token;
+  if me.id is null then return jsonb_build_object('ok', false, 'error', 'invalid_token'); end if;
+  if me.role <> 'admin' then return jsonb_build_object('ok', false, 'error', 'forbidden'); end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'people', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'id', id, 'name', name, 'role', role, 'token', token
+      ) order by role desc, name), '[]'::jsonb)
+      from people
+    )
+  );
+end;
+$$;
+
+create or replace function admin_add_person(p_token text, p_name text, p_role text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me people;
+  new_row people;
+begin
+  select * into me from people where token = p_token;
+  if me.id is null then return jsonb_build_object('ok', false, 'error', 'invalid_token'); end if;
+  if me.role <> 'admin' then return jsonb_build_object('ok', false, 'error', 'forbidden'); end if;
+  if coalesce(trim(p_name), '') = '' then return jsonb_build_object('ok', false, 'error', 'bad_name'); end if;
+  if p_role not in ('admin','member') then return jsonb_build_object('ok', false, 'error', 'bad_role'); end if;
+
+  insert into people (name, role) values (trim(p_name), p_role) returning * into new_row;
+
+  return jsonb_build_object('ok', true, 'id', new_row.id, 'name', new_row.name, 'role', new_row.role, 'token', new_row.token);
+end;
+$$;
+
+create or replace function admin_remove_person(p_token text, p_person_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me people;
+  target people;
+  admin_count int;
+begin
+  select * into me from people where token = p_token;
+  if me.id is null then return jsonb_build_object('ok', false, 'error', 'invalid_token'); end if;
+  if me.role <> 'admin' then return jsonb_build_object('ok', false, 'error', 'forbidden'); end if;
+
+  select * into target from people where id = p_person_id;
+  if target.id is null then return jsonb_build_object('ok', false, 'error', 'not_found'); end if;
+
+  if target.role = 'admin' then
+    select count(*) into admin_count from people where role = 'admin';
+    if admin_count <= 1 then return jsonb_build_object('ok', false, 'error', 'last_admin'); end if;
+  end if;
+
+  delete from people where id = p_person_id;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
 -- Only the functions above are reachable by the app's anon key.
 grant execute on function app_sync(text) to anon;
 grant execute on function log_visit(text, text, text, text, jsonb, text, bigint) to anon;
 grant execute on function delete_visit(text, uuid) to anon;
+grant execute on function update_visit(text, uuid, text, text, text, jsonb, text, bigint) to anon;
 grant execute on function add_restaurant(text, text, text, text, text, text, text, text, jsonb) to anon;
 grant execute on function update_restaurant(text, text, text, text, text, text, text, text, text, jsonb) to anon;
 grant execute on function delete_restaurant(text, text) to anon;
+grant execute on function admin_list_people(text) to anon;
+grant execute on function admin_add_person(text, text, text) to anon;
+grant execute on function admin_remove_person(text, uuid) to anon;
 
 -- ---------------------------------------------------------------------
 -- Seed data: the 4 restaurants already in the app

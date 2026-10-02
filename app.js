@@ -17,8 +17,11 @@ var token = "";
   if(fromUrl){
     token = fromUrl;
     try{localStorage.setItem(TKEY, token);}catch(e){}
-    // Drop the token out of the visible URL / history once it's saved.
-    try{history.replaceState({}, "", window.location.pathname);}catch(e){}
+    // Keep ?k= in the address bar on purpose: iOS "Add to Home Screen" saves
+    // whatever URL is showing at that moment, and a Home Screen icon has its
+    // own separate storage from Safari — so if we ever stripped this, the
+    // icon would permanently launch with no token and nothing to fall back
+    // to. Every future tap of the icon re-sends the token with it.
   } else {
     try{token = localStorage.getItem(TKEY) || "";}catch(e){token = "";}
   }
@@ -228,13 +231,23 @@ function viewPick(){
 /* ================= log ================= */
 var logDraft=null;
 var savingVisit=false;
+var editingVisitId=null;
 function newDraft(){return {restId:"",meal:defaultMeal(),type:"Ate there",who:[me.name],items:[],text:"",custom:"",showTime:false};}
 function draftTs(d){return d.custom?new Date(d.custom).getTime():Date.now();}
+function startEditVisit(id){
+  var v=state.visits.find(function(x){return x.id===id;});
+  if(!v)return;
+  logDraft={restId:v.restId, meal:v.meal, type:v.type, who:v.who.slice(), items:[], text:v.ate||"", custom:toLocalInput(new Date(v.ts)), showTime:true};
+  editingVisitId=id;
+  go("log");
+}
+function cancelEditVisit(){logDraft=null;editingVisitId=null;go("history");}
 function viewLog(){
   if(!logDraft)logDraft=newDraft();
   var d=logDraft, r=rest(d.restId), h="";
+  if(editingVisitId)h+='<div class="banner">✏️ Editing a past entry.</div><button class="small secondary" onclick="cancelEditVisit()">Cancel edit</button>';
   // duplicate warning
-  var dup=sortedVisits().find(function(v){return v.meal===d.meal&&startOfDay(v.ts)===startOfDay(draftTs(d));});
+  var dup=sortedVisits().find(function(v){return v.id!==editingVisitId&&v.meal===d.meal&&startOfDay(v.ts)===startOfDay(draftTs(d));});
   if(dup)h+='<div class="banner">⚠️ '+esc(d.meal)+' was already logged: '+esc(rname(dup.restId))+' by '+esc(dup.who.join(", "))+' at '+fmtTime(dup.ts)+'.</div>';
   h+='<div class="sec" style="margin-top:12px">1 · Where did she eat?</div><div class="grid">'+state.restaurants.map(function(x){
     return '<button class="tile'+(d.restId===x.id?" on":"")+'" style="'+bg(x)+'" onclick="setRest(\''+x.id+'\')"><span class="e">'+esc(x.emoji)+'</span>'+esc(x.name)+'<small>'+agoText(x.id)+'</small></button>';
@@ -251,7 +264,7 @@ function viewLog(){
   h+='<div style="margin-top:14px">'+(d.showTime
       ?'<label style="margin-top:0">When was this?</label><input type="datetime-local" id="f_time" value="'+esc(d.custom||toLocalInput(new Date()))+'" onchange="logDraft.custom=this.value;render()">'
       :'<button class="small secondary" onclick="logDraft.showTime=true;render()">🕒 Not just now? Change the time</button>')+'</div>';
-  h+='<button class="good" style="min-height:76px;font-size:26px;margin-top:20px" onclick="saveVisit()"'+(savingVisit?' disabled':'')+'>'+(savingVisit?'Saving…':'✅ Save meal')+'</button>';
+  h+='<button class="good" style="min-height:76px;font-size:26px;margin-top:20px" onclick="saveVisit()"'+(savingVisit?' disabled':'')+'>'+(savingVisit?'Saving…':(editingVisitId?'✅ Update meal':'✅ Save meal'))+'</button>';
   return h;
 }
 function setRest(id){logDraft.restId=id;logDraft.items=[];render();}
@@ -273,18 +286,23 @@ function saveVisit(){
   if(savingVisit)return;
   var parts=d.items.slice(); if(d.text.trim())parts.push(d.text.trim());
   savingVisit=true;render();
-  sb.rpc("log_visit",{
+  var wasEditing=editingVisitId;
+  var params={
     p_token:token, p_rest_id:d.restId, p_meal:d.meal, p_type:d.type,
     p_who:d.who, p_ate:parts.join(", "), p_ts:draftTs(d)
-  }).then(function(res){
+  };
+  var call = wasEditing
+    ? sb.rpc("update_visit", Object.assign({p_visit_id:wasEditing}, params))
+    : sb.rpc("log_visit", params);
+  call.then(function(res){
     savingVisit=false;
     if(res.error || !res.data || !res.data.ok){
-      toast("Couldn't save — check your connection and try again");
+      toast(res.data && res.data.error==="forbidden" ? "You can only edit your own entries" : "Couldn't save — check your connection and try again");
       render();
       return;
     }
-    logDraft=null;pick.rejected=[];pick.current=null;pick.dish="";
-    toast("Saved! ✅");go("home");
+    logDraft=null;editingVisitId=null;pick.rejected=[];pick.current=null;pick.dish="";
+    toast(wasEditing?"Updated ✅":"Saved! ✅");go(wasEditing?"history":"home");
     sync();
   }).catch(function(){savingVisit=false;toast("Couldn't save — check your connection and try again");render();});
 }
@@ -300,6 +318,7 @@ function viewHistory(){
     h+='<div class="card" style="'+bg(rest(v.restId))+';padding:14px"><div style="display:flex;gap:12px;align-items:center"><div style="font-size:40px">'+remoji(v.restId)+'</div>'+
       '<div><b>'+esc(rname(v.restId))+'</b><div class="muted">'+fmtTime(v.ts)+'</div></div></div>'+visitTags(v)+
       (v.ate?'<div style="margin-top:8px"><b>Had:</b> '+esc(v.ate)+'</div>':'')+
+      '<button class="small secondary" onclick="startEditVisit(\''+v.id+'\')">✏️ Edit</button>'+
       '<button class="small danger" onclick="delVisit(\''+v.id+'\')">Delete</button></div>';
   });
   return h;
@@ -337,7 +356,85 @@ function viewPlaces(){
       (isAdmin()?'<button class="small secondary" onclick="editing=\''+r.id+'\';render()">✏️ Edit</button><button class="small danger" onclick="delPlace(\''+r.id+'\')">Remove</button>':'')+
       '</div>';
   });
+  if(isAdmin()){
+    if(adminPeople===null)loadAdminPeople();
+    h+=viewFamilyAccess();
+  }
   return h;
+}
+
+/* ---- family access (admin only) ---- */
+var adminPeople=null, adminPeopleBusy=false, addingPerson=false, newPersonRole="member";
+function loadAdminPeople(){
+  if(adminPeopleBusy)return;
+  adminPeopleBusy=true;
+  sb.rpc("admin_list_people",{p_token:token}).then(function(res){
+    adminPeopleBusy=false;
+    if(res.data && res.data.ok)adminPeople=res.data.people;
+    render();
+  }).catch(function(){adminPeopleBusy=false;});
+}
+function viewFamilyAccess(){
+  var h='<div class="sec">Family access</div>';
+  if(addingPerson){
+    h+='<div class="card"><label style="margin-top:0">Name</label><input id="p_name" placeholder="Their name">'+
+      '<label>Role</label><div class="seg">'+["member","admin"].map(function(r){
+        return '<button class="'+(newPersonRole===r?"on":"")+'" onclick="newPersonRole=\''+r+'\';render()">'+(r==="admin"?"Admin":"Member")+'</button>';
+      }).join("")+'</div>'+
+      '<button class="good" onclick="addPerson()"'+(adminPeopleBusy?' disabled':'')+'>'+(adminPeopleBusy?'Adding…':'Add')+'</button>'+
+      '<button class="secondary" onclick="addingPerson=false;render()">Cancel</button></div>';
+  } else {
+    h+='<button onclick="addingPerson=true;newPersonRole=\'member\';render()">➕ Add a person</button>';
+  }
+  if(adminPeople===null){
+    h+='<div class="muted" style="margin:10px 4px">Loading…</div>';
+  } else {
+    var adminCount=adminPeople.filter(function(p){return p.role==="admin";}).length;
+    adminPeople.forEach(function(p){
+      var safeName=esc(p.name).replace(/'/g,"&#39;");
+      h+='<div class="card" style="padding:14px"><b>'+esc(p.name)+'</b> <span class="tag">'+(p.role==="admin"?"Admin":"Member")+'</span>'+
+        '<div><button class="small secondary" onclick="copyPersonLink(\''+p.token+'\',\''+safeName+'\')">🔗 Copy link</button>'+
+        (p.role==="admin"&&adminCount<=1?'':'<button class="small danger" onclick="removePerson(\''+p.id+'\',\''+safeName+'\')">Remove</button>')+
+        '</div></div>';
+    });
+  }
+  return h;
+}
+function copyPersonLink(tok,name){
+  var link=location.origin+location.pathname+"?k="+tok;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(link).then(function(){toast("Link copied for "+name);})
+      .catch(function(){prompt("Copy this link for "+name+":",link);});
+  } else {
+    prompt("Copy this link for "+name+":",link);
+  }
+}
+function addPerson(){
+  var name=document.getElementById("p_name").value.trim();
+  if(!name){toast("Enter a name");return;}
+  if(adminPeopleBusy)return;
+  adminPeopleBusy=true;render();
+  sb.rpc("admin_add_person",{p_token:token,p_name:name,p_role:newPersonRole}).then(function(res){
+    adminPeopleBusy=false;
+    if(res.error || !res.data || !res.data.ok){toast("Couldn't add — try again");render();return;}
+    addingPerson=false;adminPeople=null;
+    toast("Added "+res.data.name+" — copy their link to send it");
+    loadAdminPeople();
+    sync();
+  }).catch(function(){adminPeopleBusy=false;toast("Couldn't add — try again");render();});
+}
+function removePerson(id,name){
+  if(!confirm("Remove "+name+"? They'll lose access right away. Their past entries stay in history."))return;
+  sb.rpc("admin_remove_person",{p_token:token,p_person_id:id}).then(function(res){
+    if(res.error || !res.data || !res.data.ok){
+      toast(res.data && res.data.error==="last_admin" ? "Can't remove the only admin" : "Couldn't remove them");
+      return;
+    }
+    adminPeople=null;
+    toast("Removed "+name);
+    loadAdminPeople();
+    sync();
+  }).catch(function(){toast("Couldn't remove them");});
 }
 function viewEditPlace(){
   var r=editing==="new"?{name:"",emoji:"🍽️",hue:30,cuisine:"",address:"",phone:"",hours:"",url:"",menu:[],note:""}:rest(editing);
