@@ -283,7 +283,7 @@ function viewLog(){
     h+='<div class="sec">What did she have? (optional)</div>';
   }
   if(r)h+='<input id="f_text" placeholder="Something else? Type it here" value="'+esc(d.text)+'" oninput="logDraft.text=this.value" style="margin-top:12px">';
-  h+='<div class="sec">Note about this visit (optional)</div><input id="f_note" placeholder="Anything worth remembering?" value="'+esc(d.note)+'" oninput="logDraft.note=this.value">';
+  h+='<div class="sec">Note about this visit (optional)</div><textarea id="f_note" placeholder="Anything worth remembering?" oninput="logDraft.note=this.value" style="min-height:120px">'+esc(d.note)+'</textarea>';
   h+='<div style="margin-top:14px">'+(d.showTime
       ?'<label style="margin-top:0">When was this?</label><input type="datetime-local" id="f_time" value="'+esc(d.custom||toLocalInput(new Date()))+'" onchange="logDraft.custom=this.value;render()">'
       :'<button class="small secondary" onclick="logDraft.showTime=true;render()">🕒 Not just now? Change the time</button>')+'</div>';
