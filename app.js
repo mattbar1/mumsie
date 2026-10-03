@@ -1,3 +1,6 @@
+/* ================= version ================= */
+var APP_VERSION = "2026-10-02";
+
 /* ================= connection ================= */
 var cfg = window.MUMSIE_CONFIG || {};
 if(!cfg.url || !cfg.anonKey){
@@ -152,7 +155,8 @@ function viewHome(){
     var l=vs[0], r=rest(l.restId);
     h+='<div class="sec">Last meal</div><div class="card" style="'+bg(r)+'"><div style="display:flex;gap:14px;align-items:center"><div style="font-size:54px">'+remoji(l.restId)+'</div>'+
       '<div><h2 style="margin:0">'+esc(rname(l.restId))+'</h2><div class="muted">'+dayLabel(l.ts)+' at '+fmtTime(l.ts)+'</div></div></div>'+visitTags(l)+
-      (l.ate?'<div style="margin-top:10px"><b>Had:</b> '+esc(l.ate)+'</div>':'')+'</div>';
+      (l.ate?'<div style="margin-top:10px"><b>Had:</b> '+esc(l.ate)+'</div>':'')+
+      (l.note?'<div class="muted" style="margin-top:6px"><i>📝 '+esc(l.note)+'</i></div>':'')+'</div>';
   } else {
     h+='<div class="card"><h2>No meals logged yet</h2><div class="muted">After Mumsie eats, tap Log. It takes two taps.</div></div>';
   }
@@ -164,6 +168,7 @@ function viewHome(){
       h+='<div class="card" style="padding:14px"><b>'+remoji(x.restId)+' '+esc(rname(x.restId))+'</b><div class="muted">'+dayLabel(x.ts)+' · '+fmtTime(x.ts)+'</div>'+visitTags(x)+'</div>';
     });
   }
+  h+='<div class="muted" style="text-align:center;margin:24px 0 0;font-size:14px">Mumsie\'s Meals · v'+APP_VERSION+'</div>';
   return h;
 }
 function quickLog(meal){logDraft=newDraft();logDraft.meal=meal;go("log");}
@@ -248,12 +253,12 @@ function viewPick(){
 var logDraft=null;
 var savingVisit=false;
 var editingVisitId=null;
-function newDraft(){return {restId:"",meal:defaultMeal(),type:"Ate there",who:[me.name],items:[],text:"",custom:"",showTime:false};}
+function newDraft(){return {restId:"",meal:defaultMeal(),type:"Ate there",who:[me.name],items:[],text:"",note:"",custom:"",showTime:false};}
 function draftTs(d){return d.custom?new Date(d.custom).getTime():Date.now();}
 function startEditVisit(id){
   var v=state.visits.find(function(x){return x.id===id;});
   if(!v)return;
-  logDraft={restId:v.restId, meal:v.meal, type:v.type, who:v.who.slice(), items:[], text:v.ate||"", custom:toLocalInput(new Date(v.ts)), showTime:true};
+  logDraft={restId:v.restId, meal:v.meal, type:v.type, who:v.who.slice(), items:[], text:v.ate||"", note:v.note||"", custom:toLocalInput(new Date(v.ts)), showTime:true};
   editingVisitId=id;
   go("log");
 }
@@ -278,6 +283,7 @@ function viewLog(){
     h+='<div class="sec">What did she have? (optional)</div>';
   }
   if(r)h+='<input id="f_text" placeholder="Something else? Type it here" value="'+esc(d.text)+'" oninput="logDraft.text=this.value" style="margin-top:12px">';
+  h+='<div class="sec">Note about this visit (optional)</div><input id="f_note" placeholder="Anything worth remembering?" value="'+esc(d.note)+'" oninput="logDraft.note=this.value">';
   h+='<div style="margin-top:14px">'+(d.showTime
       ?'<label style="margin-top:0">When was this?</label><input type="datetime-local" id="f_time" value="'+esc(d.custom||toLocalInput(new Date()))+'" onchange="logDraft.custom=this.value;render()">'
       :'<button class="small secondary" onclick="logDraft.showTime=true;render()">🕒 Not just now? Change the time</button>')+'</div>';
@@ -320,7 +326,7 @@ function saveVisit(){
   var wasEditing=editingVisitId;
   var params={
     p_token:token, p_rest_id:d.restId, p_meal:d.meal, p_type:d.type,
-    p_who:d.who, p_ate:parts.join(", "), p_ts:draftTs(d)
+    p_who:d.who, p_ate:parts.join(", "), p_ts:draftTs(d), p_note:d.note.trim()
   };
   var call = wasEditing
     ? sb.rpc("update_visit", Object.assign({p_visit_id:wasEditing}, params))
@@ -349,6 +355,7 @@ function viewHistory(){
     h+='<div class="card" style="'+bg(rest(v.restId))+';padding:14px"><div style="display:flex;gap:12px;align-items:center"><div style="font-size:40px">'+remoji(v.restId)+'</div>'+
       '<div><b>'+esc(rname(v.restId))+'</b><div class="muted">'+fmtTime(v.ts)+'</div></div></div>'+visitTags(v)+
       (v.ate?'<div style="margin-top:8px"><b>Had:</b> '+esc(v.ate)+'</div>':'')+
+      (v.note?'<div class="muted" style="margin-top:6px"><i>📝 '+esc(v.note)+'</i></div>':'')+
       '<button class="small secondary" onclick="startEditVisit(\''+v.id+'\')">✏️ Edit</button>'+
       '<button class="small danger" onclick="delVisit(\''+v.id+'\')">Delete</button></div>';
   });
@@ -401,10 +408,61 @@ function viewPlaces(){
       '</div>';
   });
   if(isAdmin()){
+    h+=viewStats();
     if(adminPeople===null)loadAdminPeople();
     h+=viewFamilyAccess();
   }
   return h;
+}
+
+/* ---- stats + export (admin only) ---- */
+function computeStats(){
+  var byPerson={}; state.people.forEach(function(p){byPerson[p]=0;});
+  var byRest={}; state.restaurants.forEach(function(r){byRest[r.id]=0;});
+  state.visits.forEach(function(v){
+    v.who.forEach(function(w){byPerson[w]=(byPerson[w]||0)+1;});
+    byRest[v.restId]=(byRest[v.restId]||0)+1;
+  });
+  var people=Object.keys(byPerson).map(function(p){return {name:p,count:byPerson[p]};}).sort(function(a,b){return b.count-a.count;});
+  var restaurants=state.restaurants.map(function(r){return {name:r.name,emoji:r.emoji,count:byRest[r.id]||0};})
+    .filter(function(r){return r.count>0;}).sort(function(a,b){return b.count-a.count;});
+  return {people:people,restaurants:restaurants,total:state.visits.length};
+}
+function statRow(label,count){
+  return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)">'+
+    '<span>'+label+'</span><span class="muted">'+count+(count===1?' meal':' meals')+'</span></div>';
+}
+function viewStats(){
+  var s=computeStats();
+  var h='<div class="sec">Stats</div><div class="card">';
+  h+='<div class="muted">'+s.total+' meal'+(s.total===1?'':'s')+' logged in total</div>';
+  h+='<div style="margin-top:16px;font-weight:800">Meals by person</div>';
+  h+=s.people.map(function(p){return statRow(esc(p.name),p.count);}).join("");
+  h+='<div style="margin-top:16px;font-weight:800">Top restaurants</div>';
+  h+=s.restaurants.length?s.restaurants.map(function(r){return statRow(esc(r.emoji)+' '+esc(r.name),r.count);}).join(""):'<div class="muted" style="padding:6px 0">Nothing logged yet.</div>';
+  h+='<button class="secondary" onclick="exportCsv()" style="margin-top:16px">⬇️ Export history to CSV</button>';
+  h+='</div>';
+  return h;
+}
+function csvEscape(s){
+  s=String(s==null?"":s);
+  if(/[",\n]/.test(s))s='"'+s.replace(/"/g,'""')+'"';
+  return s;
+}
+function exportCsv(){
+  var rows=[["Date","Time","Meal","Restaurant","Type","Who","What she had","Note"]];
+  sortedVisits().slice().reverse().forEach(function(v){
+    var d=new Date(v.ts);
+    rows.push([d.toLocaleDateString(),fmtTime(v.ts),v.meal,rname(v.restId),v.type,v.who.join("; "),v.ate,v.note||""]);
+  });
+  var csv=rows.map(function(r){return r.map(csvEscape).join(",");}).join("\r\n");
+  var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");
+  a.href=url;a.download="mumsies-meals-"+new Date().toISOString().slice(0,10)+".csv";
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},2000);
+  toast("Exported "+(rows.length-1)+" entries");
 }
 
 /* ---- family access (admin only) ---- */

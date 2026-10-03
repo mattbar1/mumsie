@@ -49,6 +49,7 @@ create table visits (
   type text not null check (type in ('Ate there','Takeout')),
   who jsonb not null default '[]'::jsonb,
   ate text not null default '',
+  note text not null default '',
   ts timestamptz not null default now(),
   created_by uuid references people(id) on delete set null,
   created_at timestamptz not null default now()
@@ -101,7 +102,7 @@ begin
     'visits', (
       select coalesce(jsonb_agg(jsonb_build_object(
         'id', id, 'restId', rest_id, 'meal', meal, 'type', type, 'who', who,
-        'ate', ate, 'ts', (extract(epoch from ts) * 1000)::bigint
+        'ate', ate, 'note', note, 'ts', (extract(epoch from ts) * 1000)::bigint
       ) order by ts desc), '[]'::jsonb)
       from visits
     )
@@ -111,7 +112,7 @@ $$;
 
 create or replace function log_visit(
   p_token text, p_rest_id text, p_meal text, p_type text,
-  p_who jsonb, p_ate text, p_ts bigint default null
+  p_who jsonb, p_ate text, p_ts bigint default null, p_note text default ''
 )
 returns jsonb
 language plpgsql
@@ -136,8 +137,8 @@ begin
 
   use_ts := case when p_ts is null then now() else to_timestamp(p_ts / 1000.0) end;
 
-  insert into visits (rest_id, meal, type, who, ate, ts, created_by)
-  values (p_rest_id, p_meal, p_type, p_who, coalesce(p_ate, ''), use_ts, me.id)
+  insert into visits (rest_id, meal, type, who, ate, ts, created_by, note)
+  values (p_rest_id, p_meal, p_type, p_who, coalesce(p_ate, ''), use_ts, me.id, coalesce(p_note, ''))
   returning id into new_id;
 
   return jsonb_build_object('ok', true, 'id', new_id);
@@ -171,7 +172,7 @@ $$;
 
 create or replace function update_visit(
   p_token text, p_visit_id uuid, p_rest_id text, p_meal text, p_type text,
-  p_who jsonb, p_ate text, p_ts bigint default null
+  p_who jsonb, p_ate text, p_ts bigint default null, p_note text default ''
 )
 returns jsonb
 language plpgsql
@@ -206,7 +207,7 @@ begin
 
   update visits set
     rest_id = p_rest_id, meal = p_meal, type = p_type,
-    who = p_who, ate = coalesce(p_ate, ''), ts = use_ts
+    who = p_who, ate = coalesce(p_ate, ''), ts = use_ts, note = coalesce(p_note, '')
   where id = p_visit_id;
 
   return jsonb_build_object('ok', true);
@@ -385,9 +386,9 @@ $$;
 
 -- Only the functions above are reachable by the app's anon key.
 grant execute on function app_sync(text) to anon;
-grant execute on function log_visit(text, text, text, text, jsonb, text, bigint) to anon;
+grant execute on function log_visit(text, text, text, text, jsonb, text, bigint, text) to anon;
 grant execute on function delete_visit(text, uuid) to anon;
-grant execute on function update_visit(text, uuid, text, text, text, jsonb, text, bigint) to anon;
+grant execute on function update_visit(text, uuid, text, text, text, jsonb, text, bigint, text) to anon;
 grant execute on function add_restaurant(text, text, text, text, text, text, text, text, jsonb, jsonb) to anon;
 grant execute on function update_restaurant(text, text, text, text, text, text, text, text, text, jsonb, jsonb) to anon;
 grant execute on function delete_restaurant(text, text) to anon;
